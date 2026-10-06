@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Livraria Comunitária - Teste de API</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f4f6f8; }
+    .container { display: flex; gap: 20px; }
+    .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); width: 48%; }
+    h2, h3 { margin-top: 0; color: #1e293b; }
+    input, button, textarea { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
+    button { background: #0284c7; color: white; border: none; cursor: pointer; border-radius: 4px; font-weight: bold; }
+    button:hover { background: #0369a1; }
+    .livro-item { border-bottom: 1px solid #e2e8f0; padding: 10px 0; }
+    .comentarios { background: #f8fafc; padding: 8px; margin-top: 5px; font-size: 0.9em; border-left: 3px solid #0284c7; }
+    .status-box { padding: 10px; border-radius: 4px; margin-bottom: 15px; font-size: 0.85em; }
+    .logado { background: #dcfce7; color: #166534; }
+    .deslogado { background: #fee2e2; color: #991b1b; }
+  </style>
+</head>
+<body>
+
+  <h1>📚 Livraria Virtual (Laboratório de Segurança)</h1>
+  <div id="authStatus" class="status-box deslogado">Estado: Não autenticado</div>
+
+  <div class="container">
+    <!-- COLUNA 1: AUTENTICAÇÃO E CADASTRO ADMIN -->
+    <div class="card">
+      <h3>🔑 1. Autenticação</h3>
+      <input type="email" id="loginEmail" placeholder="E-mail (ex: admin@livraria.com)">
+      <input type="password" id="loginSenha" placeholder="Senha">
+      <button onclick="fazerLogin()">Entrar (Obter JWT)</button>
+      <button style="background: #64748b; margin-top: 5px;" onclick="fazerLogout()">Logout</button>
+
+      <hr style="margin: 20px 0;">
+
+      <h3>🛡️ 2. Área Administrativa (Apenas ADMIN)</h3>
+      <p style="font-size: 0.8em; color: #64748b;">Cadastrar Livro (Requer Header Bearer com Role ADMIN)</p>
+      <input type="text" id="livroTitulo" placeholder="Título do Livro">
+      <input type="number" id="livroAno" placeholder="Ano de Publicação">
+      <input type="number" id="livroAutorId" placeholder="ID do Autor (ex: 1)">
+      <button onclick="cadastrarLivro()">Cadastrar Livro (POST /livros)</button>
+    </div>
+
+    <!-- COLUNA 2: LISTAGEM PÚBLICA E COMENTÁRIOS -->
+    <div class="card">
+      <h3>📖 3. Catálogo de Livros (Público)</h3>
+      <button style="background: #10b981;" onclick="carregarLivros()">Atualizar Lista</button>
+      <div id="listaLivros" style="margin-top: 15px;">Carregando...</div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'http://localhost:3000/api/v1';
+
+    function atualizarStatus() {
+      const token = localStorage.getItem('token');
+      const role = localStorage.getItem('role');
+      const statusBox = document.getElementById('authStatus');
+
+      if (token) {
+        statusBox.className = 'status-box logado';
+        statusBox.innerHTML = `Conectado como <strong>${role || 'USUÁRIO'}</strong> | Token salvo no LocalStorage`;
+      } else {
+        statusBox.className = 'status-box deslogado';
+        statusBox.innerHTML = 'Estado: Não autenticado (Anônimo)';
+      }
+    }
+
+    async function fazerLogin() {
+      const email = document.getElementById('loginEmail').value;
+      const senha = document.getElementById('loginSenha').value;
+
+      try {
+        const res = await fetch(`${API_URL}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, senha })
+        });
+
+        const dados = await res.json();
+        if (res.ok) {
+          localStorage.setItem('token', dados.token);
+          localStorage.setItem('role', dados.usuario.role);
+          alert('Login bem-sucedido!');
+          atualizarStatus();
+        } else {
+          alert(`Erro (${res.status}): ${dados.erro || dados.mensagem}`);
+        }
+      } catch (err) {
+        alert('Erro ao conectar com o backend.');
+      }
+    }
+
+    function fazerLogout() {
+      localStorage.clear();
+      atualizarStatus();
+      alert('Sessão encerrada.');
+    }
+
+    async function carregarLivros() {
+      const container = document.getElementById('listaLivros');
+      try {
+        const res = await fetch(`${API_URL}/livros`);
+        const livros = await res.json();
+
+        container.innerHTML = '';
+        livros.forEach(livro => {
+          container.innerHTML += `
+            <div class="livro-item">
+              <strong>${livro.titulo}</strong> (${livro.ano}) - <em>Autor: ${livro.autor_nome || livro.autor || 'Desconhecido'}</em>
+              
+              <div class="comentarios">
+                <strong>Comentários:</strong>
+                ${livro.comentarios.length === 0 ? '<p>Nenhum comentário.</p>' : ''}
+                ${livro.comentarios.map(c => `<div><strong>${c.autor_comentario}:</strong>${c.texto}</div>`).join('')}
+                
+                <div style="margin-top: 8px;">
+                  <input type="text" id="coment_${livro.id}" placeholder="Escreva uma avaliação...">
+                  <button style="padding: 4px; font-size: 0.8em;" onclick="enviarComentario(${livro.id})">Comentar</button>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+      } catch (err) {
+        container.innerHTML = 'Erro ao buscar catálogo.';
+      }
+    }
+
+    async function cadastrarLivro() {
+      const titulo = document.getElementById('livroTitulo').value;
+      const ano = document.getElementById('livroAno').value;
+      const autor_id = document.getElementById('livroAutorId').value;
+      const token = localStorage.getItem('token');
+
+      const res = await fetch(`${API_URL}/livros`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ titulo, ano, autor_id })
+      });
+
+      const dados = await res.json();
+      if (res.status === 201) {
+        alert('Livro cadastrado com sucesso!');
+        carregarLivros();
+      } else {
+        alert(`Falha (${res.status}): ${dados.erro || dados.mensagem}`);
+      }
+    }
+
+    async function enviarComentario(livroId) {
+      const input = document.getElementById(`coment_${livroId}`);
+      const texto = input.value;
+      const token = localStorage.getItem('token');
+
+      const res = await fetch(`${API_URL}/livros/${livroId}/comentarios`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ texto })
+      });
+
+      const dados = await res.json();
+      if (res.status === 201) {
+        input.value = '';
+        carregarLivros();
+      } else {
+        alert(`Acesso Recusado (${res.status}): ${dados.erro || dados.mensagem}`);
+      }
+    }
+
+    // Inicialização
+    atualizarStatus();
+    carregarLivros();
+  </script>
+</body>
+</html>
